@@ -1,9 +1,31 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { Haptics, ImpactStyle } from '@capacitor/haptics';
+
+// Safe haptic feedback (works on iOS, gracefully fails on web)
+const hapticFeedback = async (style = 'medium') => {
+  try {
+    if (style === 'light') {
+      await Haptics.impact({ style: ImpactStyle.Light });
+    } else if (style === 'heavy') {
+      await Haptics.impact({ style: ImpactStyle.Heavy });
+    } else {
+      await Haptics.impact({ style: ImpactStyle.Medium });
+    }
+  } catch (e) {
+    // Haptics not available (web browser)
+  }
+};
 
 export default function ShootingGame() {
   const [gameState, setGameState] = useState('menu'); // menu, playing, gameOver
   const [score, setScore] = useState(0);
-  const [highScore, setHighScore] = useState(0);
+  const [highScore, setHighScore] = useState(() => {
+    try {
+      return parseInt(localStorage.getItem('targetBlitzHighScore') || '0');
+    } catch {
+      return 0;
+    }
+  });
   const [timeLeft, setTimeLeft] = useState(30);
   const [targets, setTargets] = useState([]);
   const [shots, setShots] = useState([]);
@@ -11,6 +33,15 @@ export default function ShootingGame() {
   const [showCombo, setShowCombo] = useState(false);
   const gameAreaRef = useRef(null);
   const targetIdRef = useRef(0);
+
+  // Save high score
+  useEffect(() => {
+    try {
+      localStorage.setItem('targetBlitzHighScore', highScore.toString());
+    } catch {
+      // localStorage not available
+    }
+  }, [highScore]);
 
   // Spawn targets
   useEffect(() => {
@@ -62,6 +93,7 @@ export default function ShootingGame() {
         if (prev <= 1) {
           setGameState('gameOver');
           setHighScore(h => Math.max(h, score));
+          hapticFeedback('heavy');
           return 0;
         }
         return prev - 1;
@@ -73,6 +105,7 @@ export default function ShootingGame() {
 
   const handleShoot = useCallback((e) => {
     if (gameState !== 'playing') return;
+    e.preventDefault();
 
     const rect = gameAreaRef.current.getBoundingClientRect();
     const clientX = e.touches ? e.touches[0].clientX : e.clientX;
@@ -111,6 +144,7 @@ export default function ShootingGame() {
     });
 
     if (hitTarget) {
+      hapticFeedback(hitTarget.type === 'bonus' ? 'heavy' : 'medium');
       const newCombo = combo + 1;
       setCombo(newCombo);
       const comboMultiplier = Math.min(newCombo, 5);
@@ -122,11 +156,13 @@ export default function ShootingGame() {
         setTimeout(() => setShowCombo(false), 500);
       }
     } else {
+      hapticFeedback('light');
       setCombo(0);
     }
   }, [gameState, combo]);
 
   const startGame = () => {
+    hapticFeedback('medium');
     setGameState('playing');
     setScore(0);
     setTimeLeft(30);
@@ -136,7 +172,7 @@ export default function ShootingGame() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-900 via-purple-900 to-slate-900 flex flex-col items-center justify-center p-4 select-none">
+    <div className="min-h-screen bg-gradient-to-b from-slate-900 via-purple-900 to-slate-900 flex flex-col items-center justify-center p-4 select-none safe-area-inset">
       {gameState === 'menu' && (
         <div className="text-center">
           <h1 className="text-5xl font-bold text-white mb-2">🎯</h1>
@@ -286,6 +322,12 @@ export default function ShootingGame() {
         @keyframes pulse {
           from { transform: translate(-50%, -50%) scale(1); }
           to { transform: translate(-50%, -50%) scale(1.1); }
+        }
+        .safe-area-inset {
+          padding-top: env(safe-area-inset-top);
+          padding-bottom: env(safe-area-inset-bottom);
+          padding-left: env(safe-area-inset-left);
+          padding-right: env(safe-area-inset-right);
         }
       `}</style>
     </div>
